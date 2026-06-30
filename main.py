@@ -7,8 +7,8 @@ import numpy as np
 
 
 def order_points(pts):
-    '''Rearrange coordinates to order:
-      top-left, top-right, bottom-right, bottom-left'''
+    # rearrange coordinates to order:
+    # top-left, top-right, bottom-right, bottom-left
     rect = np.zeros((4, 2), dtype='float32')
     pts = np.array(pts)
     s = pts.sum(axis=1)
@@ -31,17 +31,11 @@ img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 # Keep the clean original to warp at the end.
 orig_img = img.copy()
 
-# --- Edge detection directly on the original photo ---
+# edge detection directly on the original photo
 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-# Back to the fixed threshold that worked reliably across your test
-# photos. Otsu's automatic threshold was tried as a way to adapt to
-# different lighting, but it actually made things worse on the noisy
-# wood-grain photo — it optimized for the wrong split in the image's
-# brightness histogram (grain vs grain, not receipt vs table). Fixed
-# values are a known-good baseline; lighting robustness needs a
-# different technique (see note below).
+# scans image and finds spot where brightness changes, hence edge
 canny = cv2.Canny(gray, 50, 150)
 canny = cv2.dilate(canny, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=2)
 
@@ -49,18 +43,15 @@ con = np.zeros_like(img)
 contours, hierarchy = cv2.findContours(canny, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
 page = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
 
-# Diagnostic: print what each of the top 5 contours looks like before
-# we pick one. Useful for debugging if detection picks the wrong shape.
+
 for i, dc in enumerate(page):
     area = cv2.contourArea(dc)
     peri = cv2.arcLength(dc, True)
     approx = cv2.approxPolyDP(dc, 0.02 * peri, True)
     print(f"Contour {i}: area={area:.0f}, points={len(approx)}")
 
-# Try every contour at the gentlest simplification (0.02) first, before
-# relaxing epsilon for any of them. This avoids a noisy large contour
-# falsely collapsing to 4 points at a high epsilon and winning ahead of
-# the real receipt contour, which usually matches cleanly at low epsilon.
+
+# find 4 corners of receipt
 corners = None
 winning_contour = None
 for eps_factor in [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10]:
@@ -90,7 +81,7 @@ for index, c_point in enumerate(ordered_corners):
     character = chr(65 + index)
     cv2.putText(con, character, tuple(c_point), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 1, cv2.LINE_AA)
 
-# --- Finding the destination coordinates ---
+# finding the destination coordinates
 # This part already generalizes to any receipt length, since maxWidth/
 # maxHeight are computed from the actual detected corners each time.
 (tl, tr, br, bl) = ordered_corners
@@ -105,8 +96,8 @@ maxHeight = max(int(heightA), int(heightB))
 
 destination_corners = [[0, 0], [maxWidth, 0], [maxWidth, maxHeight], [0, maxHeight]]
 
-# --- Perspective transform ---
-# We warp orig_img (the clean, unprocessed photo), not img — corners
+# perspective transform
+# we warp orig_img corners
 # were found on the processed gray/edge version, but the final scan
 # should come from the original clean pixels.
 matrix = cv2.getPerspectiveTransform(
@@ -115,9 +106,9 @@ matrix = cv2.getPerspectiveTransform(
 )
 warped = cv2.warpPerspective(orig_img, matrix, (maxWidth, maxHeight), flags=cv2.INTER_LINEAR)
 
-cv2.imshow("Original", orig_img)
-cv2.imshow("Edges", canny)
-cv2.imshow("Contours", con)
+# cv2.imshow("Original", orig_img)
+# cv2.imshow("Edges", canny)
+# cv2.imshow("Contours", con)
 cv2.imshow("Warped", warped)
 
 cv2.waitKey(0)
