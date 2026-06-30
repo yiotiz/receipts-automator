@@ -1,0 +1,12 @@
+# Never commit real credentials
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Receipt processing folders (contain personal data / photos)
+input/
+output/
+failed/

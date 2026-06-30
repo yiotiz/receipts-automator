@@ -1,9 +1,61 @@
 # libraries to convert HEIC file to OpenCV supported file format
+import os
+import time
+import smtplib
+from email.message import EmailMessage
+from pathlib import Path
+
+from dotenv import load_dotenv
 from PIL import Image
+import PIL.JpegImagePlugin
 import pillow_heif
 
 import cv2
 import numpy as np
+
+pillow_heif.register_heif_opener()
+
+# --- Email settings ---
+# Credentials are loaded from a .env file in the same folder as this
+# script, rather than typed in or hardcoded. As long as .env is listed
+# in .gitignore, nothing sensitive ever gets committed to git.
+#
+# Create a file named ".env" (no other extension) next to main.py
+# containing these three lines:
+#
+#   SENDER_EMAIL=youraddress@gmail.com
+#   SENDER_PASSWORD=your16characterapppassword
+#   RECIPIENT_EMAIL=recipient@example.com
+#
+# Note: SENDER_PASSWORD must be a Gmail "App Password", not your
+# normal Gmail password — Gmail blocks plain password login for
+# scripts like this. Generate one at: Google Account > Security >
+# App Passwords (requires 2-Step Verification to be enabled first).
+load_dotenv()
+
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
+SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
+RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL")
+
+if not all([SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL]):
+    raise ValueError(
+        "Missing email settings. Make sure you have a .env file with "
+        "SENDER_EMAIL, SENDER_PASSWORD, and RECIPIENT_EMAIL set."
+    )
+
+EMAIL_SUBJECT = "Receipt"
+DELAY_BETWEEN_EMAILS_SECONDS = 5
+
+INPUT_DIR = Path("input")
+OUTPUT_DIR = Path("output")
+FAILED_DIR = Path("failed")
+
+# Create the folders if they don't already exist, so the script
+# doesn't crash the first time it's run on a fresh setup.
+OUTPUT_DIR.mkdir(exist_ok=True)
+FAILED_DIR.mkdir(exist_ok=True)
+
+SUPPORTED_EXTENSIONS = [".heic", ".jpg", ".jpeg", ".png"]
 
 
 def order_points(pts):
@@ -21,95 +73,168 @@ def order_points(pts):
     return rect.astype('int').tolist()
 
 
-# convert HEIC file to OpenCV format
-pillow_heif.register_heif_opener()
-pil_image = Image.open("input/IMG_6423.HEIC")
+def process_receipt(file_path: Path) -> Path:
+    """
+    Takes a single receipt photo, finds its edges, straightens it,
+    and saves the result as a PDF in the output folder.
 
-img = np.array(pil_image)
-img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    Returns the path of the saved PDF.
+    Raises an exception if anything goes wrong, so the caller can
+    decide what to do with the failure (this function doesn't catch
+    its own errors — that's handled in the main loop below).
+    """
+    pil_image = Image.open(file_path)
 
-# Keep the clean original to warp at the end.
-orig_img = img.copy()
+    img = np.array(pil_image)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-# edge detection directly on the original photo
-gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    # Keep the clean original to warp at the end.
+    orig_img = img.copy()
 
-# scans image and finds spot where brightness changes, hence edge
-canny = cv2.Canny(gray, 50, 150)
-canny = cv2.dilate(canny, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=2)
+    # edge detection directly on the original photo
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-con = np.zeros_like(img)
-contours, hierarchy = cv2.findContours(canny, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-page = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
+    # scans image and finds spot where brightness changes, hence edge
+    canny = cv2.Canny(gray, 50, 150)
+    canny = cv2.dilate(canny, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=2)
 
+    contours, hierarchy = cv2.findContours(canny, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    page = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
 
-for i, dc in enumerate(page):
-    area = cv2.contourArea(dc)
-    peri = cv2.arcLength(dc, True)
-    approx = cv2.approxPolyDP(dc, 0.02 * peri, True)
-    print(f"Contour {i}: area={area:.0f}, points={len(approx)}")
-
-
-# find 4 corners of receipt
-corners = None
-winning_contour = None
-for eps_factor in [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10]:
-    for c in page:
-        peri = cv2.arcLength(c, True)
-        epsilon = eps_factor * peri
-        approx = cv2.approxPolyDP(c, epsilon, True)
-        if len(approx) == 4:
-            corners = approx
-            winning_contour = c
+    # find 4 corners of receipt
+    corners = None
+    for eps_factor in [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10]:
+        for c in page:
+            peri = cv2.arcLength(c, True)
+            epsilon = eps_factor * peri
+            approx = cv2.approxPolyDP(c, epsilon, True)
+            if len(approx) == 4:
+                corners = approx
+                break
+        if corners is not None:
             break
-    if corners is not None:
-        break
 
-if corners is None:
-    raise ValueError("Could not find a 4-point contour for the receipt.")
+    if corners is None:
+        raise ValueError(f"Could not find a 4-point contour for {file_path.name}")
 
-cv2.drawContours(con, winning_contour, -1, (0, 255, 255), 3)
-cv2.drawContours(con, corners, -1, (0, 255, 0), 10)
+    # Flatten corners from shape (4, 1, 2) to a plain list of [x, y] pairs,
+    # then sort into top-left, top-right, bottom-right, bottom-left order.
+    corners_flat = np.concatenate(corners).tolist()
+    ordered_corners = order_points(corners_flat)
 
-# Flatten corners from shape (4, 1, 2) to a plain list of [x, y] pairs,
-# then sort into top-left, top-right, bottom-right, bottom-left order.
-corners_flat = np.concatenate(corners).tolist()
-ordered_corners = order_points(corners_flat)
+    # finding the destination coordinates
+    (tl, tr, br, bl) = ordered_corners
 
-for index, c_point in enumerate(ordered_corners):
-    character = chr(65 + index)
-    cv2.putText(con, character, tuple(c_point), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 1, cv2.LINE_AA)
+    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+    maxWidth = max(int(widthA), int(widthB))
 
-# finding the destination coordinates
-# This part already generalizes to any receipt length, since maxWidth/
-# maxHeight are computed from the actual detected corners each time.
-(tl, tr, br, bl) = ordered_corners
+    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+    maxHeight = max(int(heightA), int(heightB))
 
-widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
-widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
-maxWidth = max(int(widthA), int(widthB))
+    destination_corners = [[0, 0], [maxWidth, 0], [maxWidth, maxHeight], [0, maxHeight]]
 
-heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
-heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
-maxHeight = max(int(heightA), int(heightB))
+    # perspective transform — warp the original clean pixels, since
+    # corners were found on the processed gray/edge version, but the
+    # final scan should come from the unprocessed photo.
+    matrix = cv2.getPerspectiveTransform(
+        np.float32(ordered_corners),
+        np.float32(destination_corners)
+    )
+    warped = cv2.warpPerspective(orig_img, matrix, (maxWidth, maxHeight), flags=cv2.INTER_LINEAR)
 
-destination_corners = [[0, 0], [maxWidth, 0], [maxWidth, maxHeight], [0, maxHeight]]
+    # get warped photo and convert it back to pillow format, then save as PDF
+    warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
+    pil_warped = Image.fromarray(warped_rgb)
 
-# perspective transform
-# we warp orig_img corners
-# were found on the processed gray/edge version, but the final scan
-# should come from the original clean pixels.
-matrix = cv2.getPerspectiveTransform(
-    np.float32(ordered_corners),
-    np.float32(destination_corners)
-)
-warped = cv2.warpPerspective(orig_img, matrix, (maxWidth, maxHeight), flags=cv2.INTER_LINEAR)
+    output_path = OUTPUT_DIR / f"{file_path.stem}.pdf"
+    pil_warped.save(output_path)
 
-# cv2.imshow("Original", orig_img)
-# cv2.imshow("Edges", canny)
-# cv2.imshow("Contours", con)
-cv2.imshow("Warped", warped)
+    return output_path
 
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+
+def send_receipt_email(pdf_path: Path):
+    """
+    Sends a single PDF as an email attachment to the configured
+    recipient. Raises an exception if anything goes wrong, so the
+    caller can decide how to handle the failure — same pattern as
+    process_receipt().
+    """
+    if not SENDER_PASSWORD:
+        raise ValueError("No app password found in .env — cannot send email.")
+
+    # Build the email message: who it's from, who it's to, the
+    # subject line, and a short body.
+    msg = EmailMessage()
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = RECIPIENT_EMAIL
+    msg["Subject"] = EMAIL_SUBJECT
+    msg.set_content(f"Attached: {pdf_path.name}")
+
+    # Read the PDF file as raw bytes and attach it to the email.
+    with open(pdf_path, "rb") as f:
+        pdf_bytes = f.read()
+
+    msg.add_attachment(
+        pdf_bytes,
+        maintype="application",
+        subtype="pdf",
+        filename=pdf_path.name,
+    )
+
+    # Connect to Gmail's SMTP server over a secure (SSL) connection,
+    # log in, and send the message. The "with" block automatically
+    # closes the connection afterwards, even if something goes wrong.
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+        smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
+        smtp.send_message(msg)
+
+
+# --- Main loop: go through every file in the input folder ---
+
+processed_count = 0
+failed_count = 0
+emailed_count = 0
+email_failed_count = 0
+
+for file_path in sorted(INPUT_DIR.iterdir()):
+    if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        continue  # skip anything that isn't an image we support
+
+    print(f"Processing: {file_path.name}")
+
+    try:
+        output_path = process_receipt(file_path)
+        print(f"  Saved: {output_path.name}")
+        processed_count += 1
+
+        # Now try to email the PDF we just created.
+        try:
+            send_receipt_email(output_path)
+            print(f"  Emailed: {output_path.name}")
+            emailed_count += 1
+        except Exception as email_error:
+            # The PDF itself was created fine — only the email failed.
+            # We don't move the original photo to failed/ in this case,
+            # since the scan succeeded; we just log the email problem.
+            print(f"  Email failed: {email_error}")
+            email_failed_count += 1
+
+        # Wait a few seconds before the next email, so we don't send
+        # a burst of emails in a row and risk being rate-limited.
+        time.sleep(DELAY_BETWEEN_EMAILS_SECONDS)
+
+    except Exception as e:
+        # Something went wrong with this one file — log it and move
+        # the original photo into the failed folder, but keep going
+        # rather than stopping the whole batch.
+        print(f"  Failed: {e}")
+        failed_count += 1
+
+        failed_path = FAILED_DIR / file_path.name
+        file_path.rename(failed_path)
+
+print(f"\nDone. Processed: {processed_count}, Failed: {failed_count}, "
+      f"Emailed: {emailed_count}, Email failures: {email_failed_count}")
