@@ -17,20 +17,8 @@ pillow_heif.register_heif_opener()
 
 # --- Email settings ---
 # Credentials are loaded from a .env file in the same folder as this
-# script, rather than typed in or hardcoded. As long as .env is listed
-# in .gitignore, nothing sensitive ever gets committed to git.
-#
-# Create a file named ".env" (no other extension) next to main.py
-# containing these three lines:
-#
-#   SENDER_EMAIL=youraddress@gmail.com
-#   SENDER_PASSWORD=your16characterapppassword
-#   RECIPIENT_EMAIL=recipient@example.com
-#
-# Note: SENDER_PASSWORD must be a Gmail "App Password", not your
-# normal Gmail password — Gmail blocks plain password login for
-# scripts like this. Generate one at: Google Account > Security >
-# App Passwords (requires 2-Step Verification to be enabled first).
+
+
 load_dotenv()
 
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
@@ -136,7 +124,7 @@ def process_receipt(file_path: Path) -> Path:
 
     destination_corners = [[0, 0], [maxWidth, 0], [maxWidth, maxHeight], [0, maxHeight]]
 
-    # perspective transform — warp the original clean pixels, since
+    # perspective transform - warp the original clean pixels, since
     # corners were found on the processed gray/edge version, but the
     # final scan should come from the unprocessed photo.
     matrix = cv2.getPerspectiveTransform(
@@ -227,7 +215,7 @@ for file_path in sorted(INPUT_DIR.iterdir()):
         time.sleep(DELAY_BETWEEN_EMAILS_SECONDS)
 
     except Exception as e:
-        # Something went wrong with this one file — log it and move
+        # Something went wrong with this one file - log it and move
         # the original photo into the failed folder, but keep going
         # rather than stopping the whole batch.
         print(f"  Failed: {e}")
