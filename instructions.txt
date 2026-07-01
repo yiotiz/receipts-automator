@@ -3,7 +3,7 @@
 python -- version
 
 
-2. Initial Setup - only do this once.
+2. Initial Setup - only do this once (in program folder).
 
 # create a virtual environment
 python -m venv .venv
@@ -14,7 +14,7 @@ python -m venv .venv
 pip install -r requirements.txt
 
 
-3. Run the program
+3. Run the program (navigate to program folder first)
 
 # activate the venv first
 .venv\Scripts\activate

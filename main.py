@@ -6,7 +6,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from dotenv import load_dotenv
-from PIL import Image
+from PIL import Image, ImageOps
 import PIL.JpegImagePlugin
 import pillow_heif
 
@@ -73,6 +73,8 @@ def process_receipt(file_path: Path) -> Path:
     its own errors — that's handled in the main loop below).
     """
     pil_image = Image.open(file_path)
+
+    pil_image = ImageOps.exif_transpose(pil_image)
 
     img = np.array(pil_image)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
