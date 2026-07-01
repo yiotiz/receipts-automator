@@ -1,0 +1,23 @@
+1. Ensure you have Python installed. Ensure Python version is 3+ (ideally Python 3.14)
+
+python -- version
+
+
+2. Initial Setup - only do this once.
+
+# create a virtual environment
+python -m venv .venv
+
+# activate it (Windows)
+.venv\Scripts\activate
+
+pip install -r requirements.txt
+
+
+3. Run the program
+
+# activate the venv first
+.venv\Scripts\activate
+
+# drop photos into the input/ folder, then run
+python main.py

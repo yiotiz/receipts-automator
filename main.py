@@ -133,6 +133,12 @@ def process_receipt(file_path: Path) -> Path:
     )
     warped = cv2.warpPerspective(orig_img, matrix, (maxWidth, maxHeight), flags=cv2.INTER_LINEAR)
 
+    # shows images for debugging
+    # cv2.imshow("Edges", canny)
+    # cv2.imshow("Warped", warped)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
     # get warped photo and convert it back to pillow format, then save as PDF
     warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
     pil_warped = Image.fromarray(warped_rgb)
@@ -151,7 +157,7 @@ def send_receipt_email(pdf_path: Path):
     process_receipt().
     """
     if not SENDER_PASSWORD:
-        raise ValueError("No app password found in .env — cannot send email.")
+        raise ValueError("No app password found in .env - cannot send email.")
 
     # Build the email message: who it's from, who it's to, the
     # subject line, and a short body.
