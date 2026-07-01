@@ -24,11 +24,12 @@ load_dotenv()
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
 SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
 RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL")
+EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "gmail").lower()
 
-if not all([SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL]):
+if not all([SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL, EMAIL_PROVIDER]):
     raise ValueError(
         "Missing email settings. Make sure you have a .env file with "
-        "SENDER_EMAIL, SENDER_PASSWORD, and RECIPIENT_EMAIL set."
+        "SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL and EMAIL_PROVIDER set."
     )
 
 EMAIL_SUBJECT = "Receipt"
@@ -178,12 +179,20 @@ def send_receipt_email(pdf_path: Path):
         filename=pdf_path.name,
     )
 
-    # Connect to Gmail's SMTP server over a secure (SSL) connection,
-    # log in, and send the message. The "with" block automatically
-    # closes the connection afterwards, even if something goes wrong.
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-        smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
-        smtp.send_message(msg)
+    if EMAIL_PROVIDER == "outlook":
+        # Outlook uses port 587 with STARTTLS - connects unencrypted
+        # then upgrades to encrypted after the initial handshake.
+        with smtplib.SMTP("smtp.office365.com", 587) as smtp:
+            smtp.starttls()
+            smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
+            smtp.send_message(msg)
+    else:
+        # Gmail uses port 465 with SSL - encrypted from
+        # the start of the connection. Requires an App Password,
+        # not your normal Gmail password.
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(SENDER_EMAIL, SENDER_PASSWORD)
+            smtp.send_message(msg)
 
 
 # --- Main loop: go through every file in the input folder ---
