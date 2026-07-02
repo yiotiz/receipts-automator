@@ -3,6 +3,29 @@
 python -- version
 
 
+-------- FOR NON TECH USER --------
+
+FIRST TIME SETUP (DO THIS ONCE)
+Windows:
+1. Double-click install.bat
+2. If Windows Defender warns you, click "More info" → "Run anyway"
+2. Wait for it to finish - you'll see "Setup complete!" when done
+
+Mac:
+1. Double-click install.command
+2. If macOS blocks it, go to System Settings → Privacy & Security → scroll down → click "Open Anyway"
+3. Wait for it to finish - you'll see "Setup complete!" when done
+
+RUNNING THE PROGRAM (EVERY TIME)
+1. Drop your receipt photos into the input/ folder
+2. Double-click run.bat (Windows) or run.command (Mac)
+3. The app will open - go to the Settings tab first and fill in your email details, then click Save Settings
+4. Go to the Run tab, click Start Processing
+5. Finished PDFs appear in the output/ folder
+
+
+-------- FOR TECH USER --------
+
 2. Initial Setup - only do this once (in program folder).
 
 # create a virtual environment
