@@ -197,49 +197,56 @@ def send_receipt_email(pdf_path: Path):
             smtp.send_message(msg)
 
 
-# --- Main loop: go through every file in the input folder ---
+if __name__ == "__main__":
+    if not all([SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL]):
+        raise ValueError(
+            "Missing email settings. Make sure you have a .env file with "
+            "SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL and EMAIL_PROVIDER set."
+        )
 
-processed_count = 0
-failed_count = 0
-emailed_count = 0
-email_failed_count = 0
+    # --- Main loop: go through every file in the input folder ---
 
-for file_path in sorted(INPUT_DIR.iterdir()):
-    if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
-        continue  # skip anything that isn't an image we support
+    processed_count = 0
+    failed_count = 0
+    emailed_count = 0
+    email_failed_count = 0
 
-    print(f"Processing: {file_path.name}")
+    for file_path in sorted(INPUT_DIR.iterdir()):
+        if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            continue  # skip anything that isn't an image we support
 
-    try:
-        output_path = process_receipt(file_path)
-        print(f"  Saved: {output_path.name}")
-        processed_count += 1
+        print(f"Processing: {file_path.name}")
 
-        # Now try to email the PDF we just created.
         try:
-            send_receipt_email(output_path)
-            print(f"  Emailed: {output_path.name}")
-            emailed_count += 1
-        except Exception as email_error:
-            # The PDF itself was created fine — only the email failed.
-            # We don't move the original photo to failed/ in this case,
-            # since the scan succeeded; we just log the email problem.
-            print(f"  Email failed: {email_error}")
-            email_failed_count += 1
+            output_path = process_receipt(file_path)
+            print(f"  Saved: {output_path.name}")
+            processed_count += 1
 
-        # Wait a few seconds before the next email, so we don't send
-        # a burst of emails in a row and risk being rate-limited.
-        time.sleep(DELAY_BETWEEN_EMAILS_SECONDS)
+            # Now try to email the PDF we just created.
+            try:
+                send_receipt_email(output_path)
+                print(f"  Emailed: {output_path.name}")
+                emailed_count += 1
+            except Exception as email_error:
+                # The PDF itself was created fine — only the email failed.
+                # We don't move the original photo to failed/ in this case,
+                # since the scan succeeded; we just log the email problem.
+                print(f"  Email failed: {email_error}")
+                email_failed_count += 1
 
-    except Exception as e:
-        # Something went wrong with this one file - log it and move
-        # the original photo into the failed folder, but keep going
-        # rather than stopping the whole batch.
-        print(f"  Failed: {e}")
-        failed_count += 1
+            # Wait a few seconds before the next email, so we don't send
+            # a burst of emails in a row and risk being rate-limited.
+            time.sleep(DELAY_BETWEEN_EMAILS_SECONDS)
 
-        failed_path = FAILED_DIR / file_path.name
-        file_path.rename(failed_path)
+        except Exception as e:
+            # Something went wrong with this one file - log it and move
+            # the original photo into the failed folder, but keep going
+            # rather than stopping the whole batch.
+            print(f"  Failed: {e}")
+            failed_count += 1
 
-print(f"\nDone. Processed: {processed_count}, Failed: {failed_count}, "
-      f"Emailed: {emailed_count}, Email failures: {email_failed_count}")
+            failed_path = FAILED_DIR / file_path.name
+            file_path.rename(failed_path)
+
+        print(f"\nDone. Processed: {processed_count}, Failed: {failed_count}, "
+            f"Emailed: {emailed_count}, Email failures: {email_failed_count}")
